@@ -410,7 +410,7 @@ endinterface
 
 
 module mkServer2AvalonMaster(Server2AvalonMasterIfc#(word_address_width, data_width))
-   provisos(Max#(word_address_width,31,31),
+   provisos(//Max#(word_address_width,31,31),
 	    Add#(word_address_width, 2, TAdd#(2, word_address_width)));
    // bypass wires for incoming Avalon master signals
    // N.B. avalon master address is a byte address, so need to add 2 bits
