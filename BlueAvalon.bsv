@@ -30,9 +30,9 @@
 
 package BlueAvalon;
 
-import Avalon2ClientServer :: *;
+import Avalon :: *;
 
-export Avalon2ClientServer :: *;
+export Avalon :: *;
 
 endpackage
 
