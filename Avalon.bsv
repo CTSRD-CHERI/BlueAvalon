@@ -166,8 +166,8 @@ module toAvalonHost #(
     if (r_read[0])  rsp.operation = Read (w_readdata);
     if (r_write[0]) rsp.operation = Write;
     rspSnk.put (rsp);
-    r_read[1] <= False;
-    r_write[1] <= False;
+    r_read[0] <= False;
+    r_write[0] <= False;
     r_state <= Idle;
   endrule
 
