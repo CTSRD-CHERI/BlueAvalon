@@ -30,9 +30,9 @@
 
 package BlueAvalon;
 
-import Avalon :: *;
+import AvalonMemoryMapped :: *;
 
-export Avalon :: *;
+export AvalonMemoryMapped :: *;
 
 endpackage
 

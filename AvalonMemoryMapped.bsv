@@ -28,7 +28,7 @@
  * @BERI_LICENSE_HEADER_END@
  */
 
-package Avalon;
+package AvalonMemoryMapped;
 
 import Assert :: *;
 import BlueBasics :: *;
@@ -46,27 +46,27 @@ typedef struct {
       Bit #(t_data_w) writedata;
     } Write;
   } operation;
-} AvalonRequest #( numeric type t_byte_addr_w
-                 , numeric type t_data_w )
+} AvalonMMRequest #( numeric type t_byte_addr_w
+                   , numeric type t_data_w )
 deriving (Bits);
 
-typedef AvalonRequest #(t_byte_addr_w, t_data_w)
-        AvalonHostRequest #(numeric type t_byte_addr_w, numeric type t_data_w);
+typedef AvalonMMRequest #(t_byte_addr_w, t_data_w)
+  AvalonMMHostRequest #(numeric type t_byte_addr_w, numeric type t_data_w);
 
-typedef AvalonRequest #( TAdd #(t_word_addr_w, TLog #(TDiv #(t_data_w, 8)))
-                       , t_data_w)
-        AvalonAgentRequest #(numeric type t_word_addr_w, numeric type t_data_w);
+typedef AvalonMMRequest #( TAdd #(t_word_addr_w, TLog #(TDiv #(t_data_w, 8)))
+                         , t_data_w)
+  AvalonMMAgentRequest #(numeric type t_word_addr_w, numeric type t_data_w);
 
-function AvalonAgentRequest#(t_word_addr_w, t_data_w)
-  avalonHostToAgentRequest (AvalonHostRequest #(t_byte_addr_w, t_data_w) r)
+function AvalonMMAgentRequest#(t_word_addr_w, t_data_w)
+  avalonMMHostToAgentRequest (AvalonMMHostRequest #(t_byte_addr_w, t_data_w) r)
   provisos ( NumAlias #(t_offset_bits_w, TLog #( TDiv #(t_data_w, 8)))
            , Add #(t_word_addr_w, t_offset_bits_w, t_byte_addr_w)
            , Add #( TAdd #(t_word_addr_w, TLog#(TDiv#(t_data_w, 8)))
                   , _a
                   , t_byte_addr_w ) ) =
-  AvalonAgentRequest { address: truncateLSB (r.address)
-                     , lock: r.lock
-                     , operation: r.operation };
+  AvalonMMAgentRequest { address: truncateLSB (r.address)
+                       , lock: r.lock
+                       , operation: r.operation };
 
 typedef struct {
   Bit #(2) response;
@@ -74,15 +74,15 @@ typedef struct {
     Bit #(t_data_w) Read;
     void Write;
   } operation;
-} AvalonResponse #(numeric type t_data_w)
+} AvalonMMResponse #(numeric type t_data_w)
 deriving (Bits);
 
 // Interfaces
 ////////////////////////////////////////////////////////////////////////////////
 
 (* always_ready, always_enabled *)
-interface AvalonHost #( numeric type t_byte_addr_w
-                      , numeric type t_data_w );
+interface AvalonMMHost #( numeric type t_byte_addr_w
+                        , numeric type t_data_w );
   // host to agent
   method Bit #(t_byte_addr_w) address;
   method Bool read;
@@ -97,8 +97,8 @@ interface AvalonHost #( numeric type t_byte_addr_w
 endinterface
 
 (* always_ready, always_enabled *)
-interface AvalonAgent #( numeric type t_byte_addr_w
-                       , numeric type t_data_w );
+interface AvalonMMAgent #( numeric type t_byte_addr_w
+                         , numeric type t_data_w );
   // host to agent
   (* prefix="" *) method Action host2agent (
       Bit #(t_byte_addr_w) address
@@ -116,11 +116,11 @@ endinterface
 // "transactors"
 ////////////////////////////////////////////////////////////////////////////////
 
-typedef enum {Idle, Wait} ToAvalonHostState deriving (Bits, Eq);
-module toAvalonHost #(
-  Source #(AvalonHostRequest #(t_byte_addr_w, t_data_w)) reqSrc
-, Sink #(AvalonResponse #(t_data_w)) rspSnk
-) (AvalonHost #(t_byte_addr_w, t_data_w));
+typedef enum {Idle, Wait} ToAvalonMMHostState deriving (Bits, Eq);
+module toAvalonMMHost #(
+  Source #(AvalonMMHostRequest #(t_byte_addr_w, t_data_w)) reqSrc
+, Sink #(AvalonMMResponse #(t_data_w)) rspSnk
+) (AvalonMMHost #(t_byte_addr_w, t_data_w));
 
   // agent to host signaling
   Wire #(Bool) w_waitrequest <- mkBypassWire;
@@ -134,7 +134,7 @@ module toAvalonHost #(
   Wire #(Bit #(t_data_w)) r_writedata[2] <- mkCRegU (2);
   Wire #(Bool) r_lock[2] <- mkCRegU (2);
   // state register
-  Reg #(ToAvalonHostState) r_state <- mkReg (Idle);
+  Reg #(ToAvalonMMHostState) r_state <- mkReg (Idle);
 
   //////////////////////////////////////////////////////////////////////////////
 
@@ -161,8 +161,8 @@ module toAvalonHost #(
   continuousAssert ( !(r_read[0] && r_write[0])
                    , "Can't be waiting for read and write" );
   rule wait_state (r_state == Wait && rspSnk.canPut && !w_waitrequest);
-    let rsp = AvalonResponse { response: w_response
-                             , operation: ? };
+    let rsp = AvalonMMResponse { response: w_response
+                               , operation: ? };
     if (r_read[0])  rsp.operation = Read (w_readdata);
     if (r_write[0]) rsp.operation = Write;
     rspSnk.put (rsp);
