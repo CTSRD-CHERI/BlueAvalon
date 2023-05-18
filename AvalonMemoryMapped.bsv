@@ -276,9 +276,9 @@ module toPipelinedAvalonMMHost #(Integer max_depth)
 
   // responses / agent to host signaling
   Wire #(AvalonMMAgent2Host #(t_data_w)) w_a2h <- mkBypassWire;
-  FIFOF #(AvalonMMResponse #(t_data_w)) ff_a2h <- mkSizedFIFOF (max_depth);
+  FIFOF #(AvalonMMResponse #(t_data_w)) ff_a2h <- mkUGSizedFIFOF (max_depth);
   // requests / host to agent signaling
-  let ff_h2a <- mkSizedFIFOF (max_depth);
+  let ff_h2a <- mkUGSizedFIFOF (max_depth);
   let src_h2a = mapSource (avalonMMReq2Host2Agent, toSource (ff_h2a));
   let w_h2a <- mkDWire (AvalonMMHost2Agent { address: ?
                                            , lock: ?
@@ -329,7 +329,7 @@ module toPipelinedAvalonMMHost #(Integer max_depth)
     endaction;
   endinterface;
 
-  return tuple3 (toSink (ff_h2a), toSource (ff_a2h), avmmh);
+  return tuple3 (toGuardedSink (ff_h2a), toGuardedSource (ff_a2h), avmmh);
 
 endmodule
 
