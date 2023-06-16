@@ -37,8 +37,14 @@ import Connectable :: *;
 
 import BlueBasics :: *;
 
-// Flit types
+// Flit types and interfaces
 ////////////////////////////////////////////////////////////////////////////////
+
+// The AvalonMM{Request, Response} types are to be used when designing avalon
+// components. The AvalonMM{Host2Agent, Agent2Host} types are useful to
+// lower high level information contained in the AvalonMM{Request, Response}
+// types (through the avalonMMReq2Host2Agent and avalonMMAgent2Host2Rsp utility
+// functions) down to the actual [Pipelined]AvalonMM{Host, Agent} interfaces.
 
 ///////////////////
 // Host -> Agent //
@@ -82,6 +88,18 @@ function AvalonMMHost2Agent #(addr_, data_)
   , writedata: req.operation.Write.writedata
   };
 
+function AvalonMMRequest #(addr_, data_)
+  avalonMMHost2Agent2Req (AvalonMMHost2Agent #(addr_, data_) h2a) =
+  AvalonMMRequest {
+    address: h2a.address
+  , lock: h2a.lock
+  , operation: h2a.read
+             ? tagged Read
+             : h2a.write
+             ? tagged Write { byteenable: h2a.byteenable
+                            , writedata: h2a.writedata }
+             : ? };
+
 ///////////////////
 // Agent -> Host //
 ///////////////////
@@ -105,20 +123,17 @@ typedef struct {
 deriving (Bits);
 
 function AvalonMMResponse #(data_)
-  avalonMMAgent2Host2Rsp (AvalonMMAgent2Host #(data_) rsp) =
-  AvalonMMResponse { response: rsp.response
-                   , operation: rsp.readdatavalid
-                              ? Read (rsp.readdata)
-                              : rsp.writeresponsevalid
+  avalonMMAgent2Host2Rsp (AvalonMMAgent2Host #(data_) a2h) =
+  AvalonMMResponse { response: a2h.response
+                   , operation: a2h.readdatavalid
+                              ? Read (a2h.readdata)
+                              : a2h.writeresponsevalid
                               ? Write
                               : ? };
 
-// Interfaces
-////////////////////////////////////////////////////////////////////////////////
-
-////////////
-// Simple //
-////////////
+////////////////////
+// Host intefaces //
+////////////////////
 
 (* always_ready, always_enabled *)
 interface AvalonMMHost #( numeric type t_byte_addr_w
@@ -137,27 +152,6 @@ interface AvalonMMHost #( numeric type t_byte_addr_w
 endinterface
 
 (* always_ready, always_enabled *)
-interface AvalonMMAgent #( numeric type t_byte_addr_w
-                         , numeric type t_data_w );
-  // host to agent
-  (* prefix="" *) method Action host2agent (
-      Bit #(t_byte_addr_w) address
-    , Bool read
-    , Bool write
-    , Bit #(TDiv #(t_data_w, 8)) byteenable
-    , Bit #(t_data_w) writedata
-    , Bool lock );
-  // agent to host
-  method Bool waitrequest;
-  method Bit #(2) response;
-  method Bit #(t_data_w) readdata;
-endinterface
-
-///////////////
-// Pipelined //
-///////////////
-
-(* always_ready, always_enabled *)
 interface PipelinedAvalonMMHost #( numeric type t_byte_addr_w
                                  , numeric type t_data_w );
   // host to agent
@@ -173,6 +167,27 @@ interface PipelinedAvalonMMHost #( numeric type t_byte_addr_w
                                            , Bit #(t_data_w) readdata
                                            , Bool readdatavalid
                                            , Bool writeresponsevalid );
+endinterface
+
+//////////////////////
+// Agent Interfaces //
+//////////////////////
+
+(* always_ready, always_enabled *)
+interface AvalonMMAgent #( numeric type t_byte_addr_w
+                         , numeric type t_data_w );
+  // host to agent
+  (* prefix="" *) method Action host2agent (
+      Bit #(t_byte_addr_w) address
+    , Bool read
+    , Bool write
+    , Bit #(TDiv #(t_data_w, 8)) byteenable
+    , Bit #(t_data_w) writedata
+    , Bool lock );
+  // agent to host
+  method Bool waitrequest;
+  method Bit #(2) response;
+  method Bit #(t_data_w) readdata;
 endinterface
 
 (* always_ready, always_enabled *)
@@ -197,7 +212,8 @@ endinterface
 // "transactors"
 ////////////////////////////////////////////////////////////////////////////////
 
-// Simple
+// Simple to host
+/////////////////
 
 typedef enum {Idle, Wait} ToAvalonMMHostState deriving (Bits, Eq);
 module toAvalonMMHost
@@ -267,19 +283,15 @@ module toAvalonMMHost
 
 endmodule
 
-// Pipelined
+// Pipelined to host
+////////////////////
 
-module toPipelinedAvalonMMHost #(Integer max_depth)
+module toPipelinedAvalonMMHost #(parameter NumProxy #(t_depth) depth_proxy)
   ( Tuple3 #( Sink #(AvalonMMRequest #(t_byte_addr_w, t_data_w))
             , Source #(AvalonMMResponse #(t_data_w))
             , PipelinedAvalonMMHost #(t_byte_addr_w, t_data_w) ) );
-
-  // responses / agent to host signaling
-  Wire #(AvalonMMAgent2Host #(t_data_w)) w_a2h <- mkBypassWire;
-  FIFOF #(AvalonMMResponse #(t_data_w)) ff_a2h <- mkUGSizedFIFOF (max_depth);
-  // requests / host to agent signaling
-  let ff_h2a <- mkUGSizedFIFOF (max_depth);
-  let src_h2a = mapSource (avalonMMReq2Host2Agent, toSource (ff_h2a));
+  // resources
+  ////////////
   let w_h2a <- mkDWire (AvalonMMHost2Agent { address: ?
                                            , lock: ?
                                            // burstcount
@@ -288,23 +300,34 @@ module toPipelinedAvalonMMHost #(Integer max_depth)
                                            , byteenable: ?
                                            , writedata: ?
                                            });
+  let ff_h2a <- mkUGSizedFIFOF (valueOf (t_depth));
+  let h2a <- toSourceWithCredit (depth_proxy, ff_h2a);
+  let ff_a2h <- mkUGSizedFIFOF (valueOf (t_depth));
+  let a2h <- toSinkWithCredit (depth_proxy, ff_a2h);
+  Wire #(AvalonMMAgent2Host #(t_data_w)) w_a2h <- mkBypassWire;
 
-  //////////////////////////////////////////////////////////////////////////////
-
+  // requests / host to agent signaling
+  /////////////////////////////////////
   // can sample a request only if (1) there is one pending
-  //                              (2) there is space for a response
-  Bool can_sample_request = src_h2a.canPeek && ff_a2h.notFull;
-
-  rule sample_request (can_sample_request); w_h2a <= src_h2a.peek; endrule
-
-  rule consume_request (can_sample_request && !w_a2h.waitrequest);
-    src_h2a.drop;
+  //                              (2) there is credit for it
+  (* fire_when_enabled, no_implicit_conditions *)
+  rule sample_consume_request (h2a.data.canPeek);
+    w_h2a <= avalonMMReq2Host2Agent (h2a.data.peek);
+    if (!w_a2h.waitrequest) h2a.data.drop;
   endrule
 
+  // responses / agent to host signaling
+  //////////////////////////////////////
+
+  (* fire_when_enabled, no_implicit_conditions *)
   rule forward_response
-    ((w_a2h.readdatavalid || w_a2h.writeresponsevalid) && ff_a2h.notFull);
-    ff_a2h.enq (avalonMMAgent2Host2Rsp (w_a2h));
+    ((w_a2h.readdatavalid || w_a2h.writeresponsevalid) && a2h.data.canPut);
+    a2h.data.put (avalonMMAgent2Host2Rsp (w_a2h));
   endrule
+
+  // credits handling
+  ///////////////////
+  mkConnection (a2h.credit, h2a.credit);
 
   //////////////////////////////////////////////////////////////////////////////
 
@@ -330,6 +353,76 @@ module toPipelinedAvalonMMHost #(Integer max_depth)
   endinterface;
 
   return tuple3 (toGuardedSink (ff_h2a), toGuardedSource (ff_a2h), avmmh);
+
+endmodule
+
+// Pipelined to agent
+/////////////////////
+
+module toPipelinedAvalonMMAgent #(parameter NumProxy #(t_depth) depth_proxy)
+  ( Tuple3 #( Source #(AvalonMMRequest #(t_byte_addr_w, t_data_w))
+            , Sink #(AvalonMMResponse #(t_data_w))
+            , PipelinedAvalonMMAgent #(t_byte_addr_w, t_data_w) ) );
+  let w_h2a <- mkDWire (AvalonMMHost2Agent { address: ?
+                                           , lock: ?
+                                           // burstcount
+                                           , read: False
+                                           , write: False
+                                           , byteenable: ?
+                                           , writedata: ?
+                                           });
+  let ff_req <- mkUGSizedFIFOF (valueOf (t_depth));
+  let ff_rsp <- mkUGSizedFIFOF (valueOf (t_depth));
+  let w_a2h <- mkDWire (AvalonMMAgent2Host { response: ?
+                                           , readdata: ?
+                                           , waitrequest: !ff_req.notFull
+                                           , readdatavalid: False
+                                           , writeresponsevalid: False
+                                           });
+
+  // requests / host to agent signaling
+  /////////////////////////////////////
+  (* fire_when_enabled, no_implicit_conditions *)
+  rule accept_request (ff_req.notFull && (w_h2a.read || w_h2a.write));
+    ff_req.enq (avalonMMHost2Agent2Req (w_h2a));
+  endrule
+
+  // responses / agent to host signaling
+  //////////////////////////////////////
+  (* fire_when_enabled, no_implicit_conditions *)
+  rule forward_response (ff_rsp.notEmpty);
+    AvalonMMResponse #(t_data_w) rsp = ff_rsp.first;
+    w_a2h <= AvalonMMAgent2Host {
+               response: rsp.response
+             , readdata: rsp.operation.Read
+             , waitrequest: !ff_req.notFull
+             , readdatavalid:
+                 rsp.operation matches tagged Read .* ? True : False
+             , writeresponsevalid:
+                 rsp.operation matches tagged Write ? True : False };
+  endrule
+
+  //////////////////////////////////////////////////////////////////////////////
+
+  // PipelinedAvalonMMAgent interface
+  let avmma = interface PipelinedAvalonMMAgent;
+    method host2agent (address, read, write, byteenable, writedata, lock) =
+      w_h2a._write (AvalonMMHost2Agent { address: address
+                                       , lock: lock
+                                       // burstcount
+                                       , read: read
+                                       , write: write
+                                       , byteenable: byteenable
+                                       , writedata: writedata
+                                       });
+    method waitrequest = w_a2h.waitrequest;
+    method response = w_a2h.response;
+    method readdata = w_a2h.readdata;
+    method readdatavalid = w_a2h.readdatavalid;
+    method writeresponsevalid = w_a2h.writeresponsevalid;
+  endinterface;
+
+  return tuple3 (toGuardedSource (ff_req), toGuardedSink (ff_rsp), avmma);
 
 endmodule
 
