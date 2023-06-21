@@ -53,13 +53,11 @@ import BlueBasics :: *;
 typedef struct {
   Bit #(t_byte_addr_w) address;
   Bool lock;
+  Bit #(TDiv #(t_data_w, 8)) byteenable;
   // Bit #(t_burstcount_w) burstcount;
   union tagged {
     void Read;
-    struct {
-      Bit #(TDiv #(t_data_w, 8)) byteenable;
-      Bit #(t_data_w) writedata;
-    } Write;
+    Bit #(t_data_w) Write;
   } operation;
 } AvalonMMRequest #( numeric type t_byte_addr_w
                    , numeric type t_data_w )
@@ -84,20 +82,20 @@ function AvalonMMHost2Agent #(addr_, data_)
   , lock: req.lock
   , read: req.operation matches tagged Read ? True : False
   , write: req.operation matches tagged Write .* ? True : False
-  , byteenable: req.operation.Write.byteenable
-  , writedata: req.operation.Write.writedata
+  , byteenable: req.byteenable
+  , writedata: req.operation.Write
   };
 
 function AvalonMMRequest #(addr_, data_)
   avalonMMHost2Agent2Req (AvalonMMHost2Agent #(addr_, data_) h2a) =
   AvalonMMRequest {
     address: h2a.address
+  , byteenable: h2a.byteenable
   , lock: h2a.lock
   , operation: h2a.read
              ? tagged Read
              : h2a.write
-             ? tagged Write { byteenable: h2a.byteenable
-                            , writedata: h2a.writedata }
+             ? tagged Write h2a.writedata
              : ? };
 
 ///////////////////
@@ -126,9 +124,9 @@ function AvalonMMResponse #(data_)
   avalonMMAgent2Host2Rsp (AvalonMMAgent2Host #(data_) a2h) =
   AvalonMMResponse { response: a2h.response
                    , operation: a2h.readdatavalid
-                              ? Read (a2h.readdata)
+                              ? tagged Read (a2h.readdata)
                               : a2h.writeresponsevalid
-                              ? Write
+                              ? tagged Write
                               : ? };
 
 ////////////////////
