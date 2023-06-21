@@ -255,6 +255,72 @@ interface PipelinedAvalonMMAgent #( numeric type t_byte_addr_w
   method Bool writeresponsevalid;
 endinterface
 
+//////////////////////////
+// connectable instance //
+//////////////////////////
+
+instance Connectable #( AvalonMMHost #(t_byte_addr_w, t_data_w)
+                      , AvalonMMAgent #(t_byte_addr_w, t_data_w) );
+  module mkConnection #( AvalonMMHost #(t_byte_addr_w, t_data_w) h
+                       , AvalonMMAgent #(t_byte_addr_w, t_data_w) a ) (Empty);
+    (* fire_when_enabled, no_implicit_conditions *)
+    rule connect_a2h;
+      h.agent2host (a.waitrequest, a.response, a.readdata);
+    endrule
+    (* fire_when_enabled, no_implicit_conditions *)
+    rule connect_h2a;
+      a.host2agent ( h.address
+                   , h.read
+                   , h.write
+                   , h.byteenable
+                   , h.writedata
+                   , h.lock );
+    endrule
+  endmodule
+endinstance
+
+instance Connectable #( AvalonMMAgent #(t_byte_addr_w, t_data_w)
+                      , AvalonMMHost #(t_byte_addr_w, t_data_w) );
+  module mkConnection #( AvalonMMAgent #(t_byte_addr_w, t_data_w) a
+                       , AvalonMMHost #(t_byte_addr_w, t_data_w) h ) (Empty);
+    mkConnection (h, a);
+  endmodule
+endinstance
+
+instance Connectable #( PipelinedAvalonMMHost #(t_byte_addr_w, t_data_w)
+                      , PipelinedAvalonMMAgent #(t_byte_addr_w, t_data_w) );
+  module mkConnection #( PipelinedAvalonMMHost #(t_byte_addr_w, t_data_w) h
+                       , PipelinedAvalonMMAgent #(t_byte_addr_w, t_data_w) a )
+                       (Empty);
+    (* fire_when_enabled, no_implicit_conditions *)
+    rule connect_a2h;
+      h.agent2host ( a.waitrequest
+                   , a.response
+                   , a.readdata
+                   , a.readdatavalid
+                   , a.writeresponsevalid );
+    endrule
+    (* fire_when_enabled, no_implicit_conditions *)
+    rule connect_h2a;
+      a.host2agent ( h.address
+                   , h.read
+                   , h.write
+                   , h.byteenable
+                   , h.writedata
+                   , h.lock );
+    endrule
+  endmodule
+endinstance
+
+instance Connectable #( PipelinedAvalonMMAgent #(t_byte_addr_w, t_data_w)
+                      , PipelinedAvalonMMHost #(t_byte_addr_w, t_data_w) );
+  module mkConnection #( PipelinedAvalonMMAgent #(t_byte_addr_w, t_data_w) a
+                       , PipelinedAvalonMMHost #(t_byte_addr_w, t_data_w) h )
+                       (Empty);
+    mkConnection (h, a);
+  endmodule
+endinstance
+
 // "transactors"
 ////////////////////////////////////////////////////////////////////////////////
 
