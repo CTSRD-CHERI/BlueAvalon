@@ -61,7 +61,19 @@ typedef struct {
   } operation;
 } AvalonMMRequest #( numeric type t_byte_addr_w
                    , numeric type t_data_w )
-deriving (Bits);
+deriving (Bits, FShow);
+
+typeclass ToAvalonMMRequest #( type t
+                             , numeric type t_byte_addr_w
+                             , numeric type t_data_w );
+  function AvalonMMRequest #(t_byte_addr_w, t_data_w) toAvalonMMRequest (t x);
+endtypeclass
+
+typeclass FromAvalonMMRequest #( type t
+                               , numeric type t_byte_addr_w
+                               , numeric type t_data_w );
+  function t fromAvalonMMRequest (AvalonMMRequest #(t_byte_addr_w, t_data_w) x);
+endtypeclass
 
 typedef struct {
   Bit #(t_byte_addr_w) address;
@@ -75,8 +87,8 @@ typedef struct {
                       , numeric type t_data_w )
 deriving (Bits);
 
-function AvalonMMHost2Agent #(addr_, data_)
-  avalonMMReq2Host2Agent (AvalonMMRequest #(addr_, data_) req) =
+function AvalonMMHost2Agent #(t_byte_addr_w, t_data_w)
+  avalonMMReq2Host2Agent (AvalonMMRequest #(t_byte_addr_w, t_data_w) req) =
   AvalonMMHost2Agent {
     address: req.address
   , lock: req.lock
@@ -86,8 +98,8 @@ function AvalonMMHost2Agent #(addr_, data_)
   , writedata: req.operation.Write
   };
 
-function AvalonMMRequest #(addr_, data_)
-  avalonMMHost2Agent2Req (AvalonMMHost2Agent #(addr_, data_) h2a) =
+function AvalonMMRequest #(t_byte_addr_w, t_data_w)
+  avalonMMHost2Agent2Req (AvalonMMHost2Agent #(t_byte_addr_w, t_data_w) h2a) =
   AvalonMMRequest {
     address: h2a.address
   , byteenable: h2a.byteenable
@@ -97,6 +109,16 @@ function AvalonMMRequest #(addr_, data_)
              : h2a.write
              ? tagged Write h2a.writedata
              : ? };
+
+instance ToAvalonMMRequest #( AvalonMMHost2Agent #(t_byte_addr_w, t_data_w)
+                            , t_byte_addr_w, t_data_w );
+  function toAvalonMMRequest = avalonMMHost2Agent2Req;
+endinstance
+
+instance FromAvalonMMRequest #( AvalonMMHost2Agent #(t_byte_addr_w, t_data_w)
+                             , t_byte_addr_w, t_data_w );
+  function fromAvalonMMRequest = avalonMMReq2Host2Agent;
+endinstance
 
 ///////////////////
 // Agent -> Host //
@@ -109,7 +131,15 @@ typedef struct {
     void Write;
   } operation;
 } AvalonMMResponse #(numeric type t_data_w)
-deriving (Bits);
+deriving (Bits, FShow);
+
+typeclass ToAvalonMMResponse #(type t, numeric type t_data_w);
+  function AvalonMMResponse #(t_data_w) toAvalonMMResponse (t x);
+endtypeclass
+
+typeclass FromAvalonMMResponse #(type t, numeric type t_data_w);
+  function t fromAvalonMMResponse (AvalonMMResponse #(t_data_w) x);
+endtypeclass
 
 typedef struct {
   Bit #(2) response;
@@ -120,14 +150,32 @@ typedef struct {
 } AvalonMMAgent2Host #(numeric type t_data_w)
 deriving (Bits);
 
-function AvalonMMResponse #(data_)
-  avalonMMAgent2Host2Rsp (AvalonMMAgent2Host #(data_) a2h) =
+function AvalonMMResponse #(t_data_w)
+  avalonMMAgent2Host2Rsp (AvalonMMAgent2Host #(t_data_w) a2h) =
   AvalonMMResponse { response: a2h.response
                    , operation: a2h.readdatavalid
                               ? tagged Read (a2h.readdata)
                               : a2h.writeresponsevalid
                               ? tagged Write
                               : ? };
+
+function AvalonMMAgent2Host #(t_data_w)
+  avalonMMRsp2Agent2Host (AvalonMMResponse #(t_data_w) rsp) =
+  AvalonMMAgent2Host { response: rsp.response
+                     , readdata: rsp.operation.Read
+                     , waitrequest: error ("this should never be inspected")
+                     , readdatavalid:
+                         rsp.operation matches tagged Read .* ? True : False
+                     , writeresponsevalid:
+                         rsp.operation matches tagged Write ? True : False };
+
+instance ToAvalonMMResponse #(AvalonMMAgent2Host #(t_data_w), t_data_w);
+  function toAvalonMMResponse = avalonMMAgent2Host2Rsp;
+endinstance
+
+instance FromAvalonMMResponse #(AvalonMMAgent2Host #(t_data_w), t_data_w);
+  function fromAvalonMMResponse = avalonMMRsp2Agent2Host;
+endinstance
 
 ////////////////////
 // Host intefaces //
