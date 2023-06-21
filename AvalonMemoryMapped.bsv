@@ -310,7 +310,7 @@ module toPipelinedAvalonMMHost #(parameter NumProxy #(t_depth) depth_proxy)
   /////////////////////////////////////
   // can sample a request only if (1) there is one pending
   //                              (2) there is credit for it
-  (* fire_when_enabled, no_implicit_conditions *)
+  (* fire_when_enabled *)
   rule sample_consume_request (h2a.data.canPeek);
     w_h2a <= avalonMMReq2Host2Agent (h2a.data.peek);
     if (!w_a2h.waitrequest) h2a.data.drop;
@@ -319,7 +319,7 @@ module toPipelinedAvalonMMHost #(parameter NumProxy #(t_depth) depth_proxy)
   // responses / agent to host signaling
   //////////////////////////////////////
 
-  (* fire_when_enabled, no_implicit_conditions *)
+  (* fire_when_enabled *)
   rule forward_response
     ((w_a2h.readdatavalid || w_a2h.writeresponsevalid) && a2h.data.canPut);
     a2h.data.put (avalonMMAgent2Host2Rsp (w_a2h));
