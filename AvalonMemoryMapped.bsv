@@ -504,6 +504,7 @@ module toPipelinedAvalonMMAgent #(parameter NumProxy #(t_depth) depth_proxy)
   (* fire_when_enabled, no_implicit_conditions *)
   rule forward_response (ff_rsp.notEmpty);
     AvalonMMResponse #(t_data_w) rsp = ff_rsp.first;
+    ff_rsp.deq;
     w_a2h <= AvalonMMAgent2Host {
                response: rsp.response
              , readdata: rsp.operation.Read
