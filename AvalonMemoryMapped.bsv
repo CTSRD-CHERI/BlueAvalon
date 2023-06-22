@@ -197,6 +197,17 @@ interface AvalonMMHost #( numeric type t_byte_addr_w
                                            , Bit #(t_data_w) readdata );
 endinterface
 
+instance FShow #(AvalonMMHost #(t_byte_addr_w, t_data_w));
+  function fshow (ifc) = $format ("AvalonMMHost")
+    + $format ("\n  .address: ")    + fshow (ifc.address)
+    + $format ("\n  .read: ")       + fshow (ifc.read)
+    + $format ("\n  .write: ")      + fshow (ifc.write)
+    + $format ("\n  .byteenable: ") + fshow (ifc.byteenable)
+    + $format ("\n  .writedata: ")  + fshow (ifc.writedata)
+    + $format ("\n  .lock: ")       + fshow (ifc.lock)
+    ;
+endinstance
+
 (* always_ready, always_enabled *)
 interface PipelinedAvalonMMHost #( numeric type t_byte_addr_w
                                  , numeric type t_data_w );
@@ -214,6 +225,17 @@ interface PipelinedAvalonMMHost #( numeric type t_byte_addr_w
                                            , Bool readdatavalid
                                            , Bool writeresponsevalid );
 endinterface
+
+instance FShow #(PipelinedAvalonMMHost #(t_byte_addr_w, t_data_w));
+  function fshow (ifc) = $format ("PipelinedAvalonMMHost")
+    + $format ("\n  .address: ")    + fshow (ifc.address)
+    + $format ("\n  .read: ")       + fshow (ifc.read)
+    + $format ("\n  .write: ")      + fshow (ifc.write)
+    + $format ("\n  .byteenable: ") + fshow (ifc.byteenable)
+    + $format ("\n  .writedata: ")  + fshow (ifc.writedata)
+    + $format ("\n  .lock: ")       + fshow (ifc.lock)
+    ;
+endinstance
 
 //////////////////////
 // Agent Interfaces //
@@ -236,6 +258,14 @@ interface AvalonMMAgent #( numeric type t_byte_addr_w
   method Bit #(t_data_w) readdata;
 endinterface
 
+instance FShow #(AvalonMMAgent #(t_byte_addr_w, t_data_w));
+  function fshow (ifc) = $format ("AvalonMMAgent")
+    + $format ("\n  .waitrequest: ") + fshow (ifc.waitrequest)
+    + $format ("\n  .response: ")    + fshow (ifc.response)
+    + $format ("\n  .readdata: ")    + fshow (ifc.readdata)
+    ;
+endinstance
+
 (* always_ready, always_enabled *)
 interface PipelinedAvalonMMAgent #( numeric type t_byte_addr_w
                                   , numeric type t_data_w );
@@ -254,6 +284,16 @@ interface PipelinedAvalonMMAgent #( numeric type t_byte_addr_w
   method Bool readdatavalid;
   method Bool writeresponsevalid;
 endinterface
+
+instance FShow #(PipelinedAvalonMMAgent #(t_byte_addr_w, t_data_w));
+  function fshow (ifc) = $format ("PipelinedAvalonMMAgent")
+    + $format ("\n  .waitrequest: ")        + fshow (ifc.waitrequest)
+    + $format ("\n  .response: ")           + fshow (ifc.response)
+    + $format ("\n  .readdata: ")           + fshow (ifc.readdata)
+    + $format ("\n  .readdatavalid: ")      + fshow (ifc.readdatavalid)
+    + $format ("\n  .writeresponsevalid: ") + fshow (ifc.writeresponsevalid)
+    ;
+endinstance
 
 //////////////////////////
 // connectable instance //
