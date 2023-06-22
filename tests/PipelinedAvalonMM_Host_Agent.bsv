@@ -53,22 +53,36 @@ module mkPipelinedAvalonMMHost (PipelinedAvalonMMHost #(`ADDR_W, `DATA_W));
   let expectedRsp <- mkSizedFIFOF (8);
 
   rule genReq (addrCnt < fromInteger ((nb_transaction * (`DATA_W / 8))));
+    Bool odd = unpack (addrCnt [fromInteger (log2 (`DATA_W / 8))]);
     AvalonMMRequest #(`ADDR_W, `DATA_W) req =
       AvalonMMRequest { address: addrCnt
                       , lock: False
                       , byteenable: ~0
-                      , operation: tagged Read };
-    tprint ( $format ( "HOST> sent: ", fshow (req)
-                     , "\n      expecting: ", fshow (addrCnt) ) );
+                      , operation: (odd) ? tagged Write addrCnt : tagged Read };
+    tprint ($format ("HOST> sent: ", fshow (req)));
+    tprint ($format ( "HOST> expecting "
+                    , (odd) ? $format ("write response")
+                            : $format ("read response ") + fshow (addrCnt) ));
     snkReq.put (req);
-    expectedRsp.enq (addrCnt);
+    expectedRsp.enq ((odd) ? Invalid : Valid (addrCnt));
     addrCnt <= addrCnt + (`DATA_W / 8);
   endrule
 
   rule getRsp (srcRsp.canPeek && expectedRsp.notEmpty);
-    tprint ( $format ( "Host> expected rsp: ", fshow (expectedRsp.first)
-                     , ", got: ", fshow (srcRsp.peek.operation.Read ) ) );
-    if (srcRsp.peek.operation.Read != expectedRsp.first) $finish;
+    case (tuple2 (expectedRsp.first, srcRsp.peek.operation)) matches
+      {tagged Valid .x, tagged Read .y}: begin
+        tprint ( $format ( "HOST> expected read rsp: ", fshow (x)
+                         , ", got read rsp: ", fshow (y) ) );
+        if (x != y) $finish;
+      end
+      {tagged Invalid, tagged Write}:
+        tprint ( $format ( "HOST> expected write rsp, got write rsp" ) );
+      {.x, .y}: begin
+        tprint ( $format ( "HOST> expected rsp: ", fshow (x)
+                         , ", got rsp: ", fshow (y) ) );
+        $finish;
+      end
+    endcase
     if (    srcRsp.peek.operation.Read
          >= fromInteger ((nb_transaction - 1) * (`DATA_W / 8)) ) begin
       tprint ($format ("success"));
@@ -91,8 +105,12 @@ module mkPipelinedAvalonMMAgent (PipelinedAvalonMMAgent #(`ADDR_W, `DATA_W));
 
   rule handleReq (delay == 0);
     let req = srcReq.peek;
-    let rsp = AvalonMMResponse { response: 2'h00
-                               , operation: tagged Read req.address };
+    let rsp = case (req.operation) matches
+      tagged Read: AvalonMMResponse { response: 2'h00
+                                    , operation: tagged Read req.address };
+      tagged Write .*: AvalonMMResponse { response: 2'h00
+                                        , operation: tagged Write };
+    endcase;
     tprint ( $format ( "AGENT> received: ", fshow (req)
                      , "\n       sending: ", fshow (rsp) ) );
     srcReq.drop;
