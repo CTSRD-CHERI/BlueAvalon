@@ -35,38 +35,43 @@ import AvalonMemoryMapped :: *;
 
 import Connectable :: *;
 import FIFOF :: *;
+import SpecialFIFOs :: *;
 
 `define ADDR_W 32
 `define DATA_W 32
+`define DELAY  5
 
-Integer nb_transaction = 3;
+Integer nb_transaction = 5;
+
+function Action tprint (Fmt msg) = $display ("<%0t> ", $time, msg);
 
 module mkPipelinedAvalonMMHost (PipelinedAvalonMMHost #(`ADDR_W, `DATA_W));
-  NumProxy #(4) depthProxy = ?;
+  NumProxy #(8) depthProxy = ?;
   let {snkReq, srcRsp, ifc} <- toPipelinedAvalonMMHost (depthProxy);
 
   Reg #(Bit #(`ADDR_W)) addrCnt <- mkReg (0);
-  let expectedRsp <- mkFIFOF;
+  let expectedRsp <- mkSizedFIFOF (8);
 
-  rule genReq;
+  rule genReq (addrCnt < fromInteger ((nb_transaction * (`DATA_W / 8))));
     AvalonMMRequest #(`ADDR_W, `DATA_W) req =
       AvalonMMRequest { address: addrCnt
                       , lock: False
                       , byteenable: ~0
                       , operation: tagged Read };
-    $display (   "HOST> sent: ", fshow (req)
-             , "\n      expecting: ", fshow (addrCnt));
+    tprint ( $format ( "HOST> sent: ", fshow (req)
+                     , "\n      expecting: ", fshow (addrCnt) ) );
     snkReq.put (req);
     expectedRsp.enq (addrCnt);
     addrCnt <= addrCnt + (`DATA_W / 8);
   endrule
 
   rule getRsp (srcRsp.canPeek && expectedRsp.notEmpty);
-    $display ( "Host> expected rsp: ", fshow (expectedRsp.first)
-             , ", got: ", fshow (srcRsp.peek.operation.Read));
+    tprint ( $format ( "Host> expected rsp: ", fshow (expectedRsp.first)
+                     , ", got: ", fshow (srcRsp.peek.operation.Read ) ) );
     if (srcRsp.peek.operation.Read != expectedRsp.first) $finish;
-    if (addrCnt > (10 * (`DATA_W / 8))) begin
-      $display ("success");
+    if (    srcRsp.peek.operation.Read
+         >= fromInteger ((nb_transaction - 1) * (`DATA_W / 8)) ) begin
+      tprint ($format ("success"));
       $finish;
     end
     srcRsp.drop;
@@ -77,17 +82,22 @@ module mkPipelinedAvalonMMHost (PipelinedAvalonMMHost #(`ADDR_W, `DATA_W));
 endmodule
 
 module mkPipelinedAvalonMMAgent (PipelinedAvalonMMAgent #(`ADDR_W, `DATA_W));
-  NumProxy #(4) depthProxy = ?;
+  NumProxy #(2) depthProxy = ?;
   let {srcReq, snkRsp, ifc} <- toPipelinedAvalonMMAgent (depthProxy);
 
-  rule handleReq;
+  // artificial dealy in the agent
+  let delay <- mkReg (`DELAY);
+  rule dec_delay (delay > 0); delay <= delay - 1; endrule
+
+  rule handleReq (delay == 0);
     let req = srcReq.peek;
     let rsp = AvalonMMResponse { response: 2'h00
                                , operation: tagged Read req.address };
-    $display (   "AGENT> received: ", fshow (req)
-             , "\n       sending: ", fshow (rsp));
+    tprint ( $format ( "AGENT> received: ", fshow (req)
+                     , "\n       sending: ", fshow (rsp) ) );
     srcReq.drop;
     snkRsp.put (rsp);
+    delay <= `DELAY;
   endrule
 
   return ifc;
@@ -98,7 +108,7 @@ module simTop (Empty);
   let a <- mkPipelinedAvalonMMAgent;
   (* fire_when_enabled, no_implicit_conditions *)
   rule debug;
-    $display ("DEBUG t = %0t", $time);
+    $display ("-------------------- <t = %0t> --------------------", $time);
     $display (fshow (h));
     $display (fshow (a));
   endrule
@@ -108,5 +118,6 @@ endmodule
 
 `undef ADDR_W
 `undef DATA_W
+`undef DELAY
 
 endpackage
