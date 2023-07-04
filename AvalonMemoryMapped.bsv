@@ -368,10 +368,10 @@ endinstance
 /////////////////
 
 typedef enum {Idle, Wait} ToAvalonMMHostState deriving (Bits, Eq);
-module toAvalonMMHost
-  ( Tuple3 #( Sink #(AvalonMMRequest #(t_byte_addr_w, t_data_w))
-            , Source #(AvalonMMResponse #(t_data_w))
-            , AvalonMMHost #(t_byte_addr_w, t_data_w) ) );
+module avalonMMHostTransactor
+  (Tuple2 #( Slave #( AvalonMMRequest #(t_byte_addr_w, t_data_w)
+                    , AvalonMMResponse #(t_data_w) )
+           , AvalonMMHost #(t_byte_addr_w, t_data_w) ));
 
   // responses / agent to host signaling
   FIFOF #(AvalonMMResponse #(t_data_w)) ff_a2h <- mkFIFOF;
@@ -431,17 +431,18 @@ module toAvalonMMHost
     endaction;
   endinterface;
 
-  return tuple3 (toSink (ff_h2a), toSource (ff_a2h), avmmh);
+  return tuple2 (toSlave (ff_h2a, ff_a2h), avmmh);
 
 endmodule
 
 // Pipelined to host
 ////////////////////
 
-module toPipelinedAvalonMMHost #(parameter NumProxy #(t_depth) depth_proxy)
-  ( Tuple3 #( Sink #(AvalonMMRequest #(t_byte_addr_w, t_data_w))
-            , Source #(AvalonMMResponse #(t_data_w))
-            , PipelinedAvalonMMHost #(t_byte_addr_w, t_data_w) ) );
+module toPipelinedAvalonMMHost #(
+    parameter NumProxy #(t_depth) depth_proxy
+  , Master #( AvalonMMRequest #(t_byte_addr_w, t_data_w)
+            , AvalonMMResponse #(t_data_w) ) m
+  ) (PipelinedAvalonMMHost #(t_byte_addr_w, t_data_w));
   // resources
   ////////////
   let w_h2a <- mkDWire (AvalonMMHost2Agent { address: ?
@@ -452,10 +453,8 @@ module toPipelinedAvalonMMHost #(parameter NumProxy #(t_depth) depth_proxy)
                                            , byteenable: ?
                                            , writedata: ?
                                            });
-  let ff_h2a <- mkUGSizedFIFOF (valueOf (t_depth));
-  let h2a <- toSourceWithCredit (depth_proxy, ff_h2a);
-  let ff_a2h <- mkUGSizedFIFOF (valueOf (t_depth));
-  let a2h <- toSinkWithCredit (depth_proxy, ff_a2h);
+  let h2a <- toSourceWithCredit (depth_proxy, m.req);
+  let a2h <- toSinkWithCredit (depth_proxy, m.rsp);
   Wire #(AvalonMMAgent2Host #(t_data_w)) w_a2h <- mkBypassWire;
 
   // requests / host to agent signaling
@@ -484,7 +483,7 @@ module toPipelinedAvalonMMHost #(parameter NumProxy #(t_depth) depth_proxy)
   //////////////////////////////////////////////////////////////////////////////
 
   // PipelinedAvalonMMHost interface
-  let avmmh = interface PipelinedAvalonMMHost;
+  return interface PipelinedAvalonMMHost;
     method Bit #(t_byte_addr_w) address = w_h2a.address;
     method Bool read = w_h2a.read;
     method Bool write = w_h2a.write;
@@ -504,17 +503,28 @@ module toPipelinedAvalonMMHost #(parameter NumProxy #(t_depth) depth_proxy)
     endaction;
   endinterface;
 
-  return tuple3 (toGuardedSink (ff_h2a), toGuardedSource (ff_a2h), avmmh);
+endmodule
 
+module pipelinedAvalonMMHostTransactor #(
+    parameter NumProxy #(t_depth) depth_proxy
+  ) (Tuple2 #( Slave #( AvalonMMRequest #(t_byte_addr_w, t_data_w)
+                      , AvalonMMResponse #(t_data_w) )
+             , PipelinedAvalonMMHost #(t_byte_addr_w, t_data_w) ));
+  let req_ff <- mkSizedFIFOF (valueOf (t_depth));
+  let rsp_ff <- mkSizedFIFOF (valueOf (t_depth));
+  let hostIfc <- toPipelinedAvalonMMHost ( depth_proxy
+                                         , toMaster (req_ff, rsp_ff) );
+  return tuple2 (toSlave (req_ff, rsp_ff), hostIfc);
 endmodule
 
 // Pipelined to agent
 /////////////////////
 
-module toPipelinedAvalonMMAgent #(parameter NumProxy #(t_depth) depth_proxy)
-  ( Tuple3 #( Source #(AvalonMMRequest #(t_byte_addr_w, t_data_w))
-            , Sink #(AvalonMMResponse #(t_data_w))
-            , PipelinedAvalonMMAgent #(t_byte_addr_w, t_data_w) ) );
+module toPipelinedAvalonMMAgent #(
+    parameter NumProxy #(t_depth) depth_proxy
+  , Slave #( AvalonMMRequest #(t_byte_addr_w, t_data_w)
+           , AvalonMMResponse #(t_data_w) ) s
+  ) (PipelinedAvalonMMAgent #(t_byte_addr_w, t_data_w));
   let w_h2a <- mkDWire (AvalonMMHost2Agent { address: ?
                                            , lock: ?
                                            // burstcount
@@ -525,6 +535,8 @@ module toPipelinedAvalonMMAgent #(parameter NumProxy #(t_depth) depth_proxy)
                                            });
   let ff_req <- mkUGSizedFIFOF (valueOf (t_depth));
   let ff_rsp <- mkUGSizedFIFOF (valueOf (t_depth));
+  mkConnection (toSource (ff_req), s.req);
+  mkConnection (s.rsp, toSink (ff_rsp));
   let w_a2h <- mkDWire (AvalonMMAgent2Host { response: ?
                                            , readdata: ?
                                            , waitrequest: !ff_req.notFull
@@ -558,7 +570,7 @@ module toPipelinedAvalonMMAgent #(parameter NumProxy #(t_depth) depth_proxy)
   //////////////////////////////////////////////////////////////////////////////
 
   // PipelinedAvalonMMAgent interface
-  let avmma = interface PipelinedAvalonMMAgent;
+  return interface PipelinedAvalonMMAgent;
     method host2agent (address, read, write, byteenable, writedata, lock) =
       w_h2a._write (AvalonMMHost2Agent { address: address
                                        , lock: lock
@@ -575,8 +587,18 @@ module toPipelinedAvalonMMAgent #(parameter NumProxy #(t_depth) depth_proxy)
     method writeresponsevalid = w_a2h.writeresponsevalid;
   endinterface;
 
-  return tuple3 (toGuardedSource (ff_req), toGuardedSink (ff_rsp), avmma);
+endmodule
 
+module pipelinedAvalonMMAgentTransactor #(
+    parameter NumProxy #(t_depth) depth_proxy
+  ) (Tuple2 #( Master #( AvalonMMRequest #(t_byte_addr_w, t_data_w)
+                       , AvalonMMResponse #(t_data_w) )
+             , PipelinedAvalonMMAgent #(t_byte_addr_w, t_data_w) ));
+  let req_ff <- mkSizedFIFOF (valueOf (t_depth));
+  let rsp_ff <- mkSizedFIFOF (valueOf (t_depth));
+  let agentIfc <- toPipelinedAvalonMMAgent ( depth_proxy
+                                           , toSlave (req_ff, rsp_ff) );
+  return tuple2 (toMaster (req_ff, rsp_ff), agentIfc);
 endmodule
 
 endpackage
