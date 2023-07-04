@@ -28,7 +28,7 @@
  * @BERI_LICENSE_HEADER_END@
  */
 
-package PipelinedAvalonMM_Host_Agent;
+package PipelinedAvalonMem_SubWord;
 
 import BlueBasics :: *;
 import AvalonMemoryMapped :: *;
@@ -37,6 +37,7 @@ import Connectable :: *;
 import FIFOF :: *;
 import SpecialFIFOs :: *;
 import StmtFSM :: *;
+import Vector :: *;
 
 `define ADDR_W 32
 `define DATA_W 32
@@ -69,35 +70,55 @@ module mkPipelinedAvalonMMHost (PipelinedAvalonMMHost #(`ADDR_W, `DATA_W));
   NumProxy #(8) depthProxy = ?;
   let {slave, ifc} <- pipelinedAvalonMMHostTransactor (depthProxy);
 
-  let expectedRsp <- mkSizedFIFOF (8);
   let cntReq <- mkRegU;
   let cntRsp <- mkRegU;
   Integer nb_transaction = 5;
   mkAutoFSM (seq
     par
-      for ( cntReq <= 0
-          ; cntReq < fromInteger (nb_transaction)
-          ; cntReq <= cntReq + 1 ) action
-        lvlprint (1, $format ("HOST> FSM 1"));
-        AvalonMMRequest #(`ADDR_W, `DATA_W) avreq = ?;
-        avreq.address = cntReq;
-        avreq.lock = False;
-        avreq.byteenable = ~0;
-        avreq.operation = tagged Read;
-        slave.req.put (avreq);
-        expectedRsp.enq (Valid (cntReq));
-        lvlprint (1, $format ("HOST> sent: ", fshow (avreq)));
-        lvlprint (1, $format ( "HOST> expecting read response "
-                             , fshow (cntReq) ));
-      endaction
-      for ( cntRsp <= 0
-          ; cntRsp < fromInteger (nb_transaction)
-          ; cntRsp <= cntRsp + 1 ) action
-        lvlprint (1, $format ("HOST> FSM 2"));
-        let avrsp <- get (slave.rsp);
-        checkRsp (expectedRsp.first, avrsp);
-        expectedRsp.deq;
-      endaction
+      seq
+        for ( cntReq <= 0
+            ; cntReq < fromInteger (nb_transaction)
+            ; cntReq <= cntReq + 1 ) action
+          lvlprint (1, $format ("HOST> FSM 1"));
+          AvalonMMRequest #(`ADDR_W, `DATA_W) avreq = ?;
+          let shamnt = log2 (`DATA_W / 8);
+          avreq.address = cntReq << shamnt;
+          avreq.lock = False;
+          avreq.byteenable = ~0;
+          avreq.operation = tagged Write cntReq;
+          slave.req.put (avreq);
+          lvlprint (1, $format ("HOST> sent: ", fshow (avreq)));
+        endaction
+        for ( cntReq <= 0
+            ; cntReq < fromInteger (nb_transaction)
+            ; cntReq <= cntReq + 1 ) action
+          lvlprint (1, $format ("HOST> FSM 1"));
+          AvalonMMRequest #(`ADDR_W, `DATA_W) avreq = ?;
+          let shamnt = log2 (`DATA_W / 8);
+          avreq.address = cntReq << shamnt;
+          avreq.lock = False;
+          avreq.byteenable = ~0;
+          avreq.operation = tagged Read;
+          slave.req.put (avreq);
+          lvlprint (1, $format ("HOST> sent: ", fshow (avreq)));
+        endaction
+      endseq
+      seq
+        for ( cntRsp <= 0
+            ; cntRsp < fromInteger (nb_transaction)
+            ; cntRsp <= cntRsp + 1 ) action
+          lvlprint (1, $format ("HOST> FSM 2"));
+          let avrsp <- get (slave.rsp);
+          checkRsp (Invalid, avrsp);
+        endaction
+        for ( cntRsp <= 0
+            ; cntRsp < fromInteger (nb_transaction)
+            ; cntRsp <= cntRsp + 1 ) action
+          lvlprint (1, $format ("HOST> FSM 2"));
+          let avrsp <- get (slave.rsp);
+          checkRsp (Valid (cntRsp), avrsp);
+        endaction
+      endseq
     endpar
     $display ("success");
   endseq);
@@ -148,27 +169,43 @@ module mkPipelinedAvalonMMHost (PipelinedAvalonMMHost #(`ADDR_W, `DATA_W));
   return ifc;
 endmodule
 
-module mkPipelinedAvalonMMAgent (PipelinedAvalonMMAgent #(`ADDR_W, `DATA_W));
+module mkPipelinedAvalonMem (PipelinedAvalonMMAgent #(`ADDR_W, `DATA_W))
+  provisos ( NumAlias #(memDepth, 32));
   NumProxy #(2) depthProxy = ?;
   let {master, ifc} <- pipelinedAvalonMMAgentTransactor (depthProxy);
+  Vector #(memDepth, Reg #(Bit #(`DATA_W))) mem <- replicateM (mkRegU);
+  function dumpMem = action
+    for (Integer i = 0; i < valueOf (memDepth); i = i + 1) begin
+      lvlprint (3, $format ("mem[%d]: 0x%0x", i, mem[i]));
+    end
+  endaction;
 
-  // artificial dealy in the agent
-  let delay <- mkReg (`DELAY);
-  rule dec_delay (delay > 0); delay <= delay - 1; endrule
-
-  rule handleReq (delay == 0);
+  rule handleReq;
     let req = master.req.peek;
-    let rsp = case (req.operation) matches
-      tagged Read: AvalonMMResponse { response: 2'h00
-                                    , operation: tagged Read req.address };
-      tagged Write .*: AvalonMMResponse { response: 2'h00
-                                        , operation: tagged Write };
-    endcase;
+    let rsp = AvalonMMResponse { response: 2'b10 // SLVERR
+                               , operation: ? };
+
+    let lo = log2 (`DATA_W / 8);
+    let hi = lo + valueOf (TLog #(memDepth)) - 1;
+    Bit #(TLog #(memDepth)) regNo = req.address[hi:lo];
+    let memReg = asReg (mem[regNo]);
+    case (req.operation) matches
+      tagged Read: rsp = AvalonMMResponse {
+        response: 2'b00
+      , operation: tagged Read memReg
+      };
+      tagged Write .val: begin
+        rsp = AvalonMMResponse { response: 2'b00
+                               , operation: tagged Write };
+        memReg <= mergeWithBE (req.byteenable, memReg, val);
+      end
+    endcase
     lvlprint (1, $format ( "AGENT> received: ", fshow (req)
+                         , "\n       selecting regNo ", fshow (regNo)
                          , "\n       sending: ", fshow (rsp) ) );
+    dumpMem;
     master.req.drop;
     master.rsp.put (rsp);
-    delay <= `DELAY;
   endrule
 
   return ifc;
@@ -176,7 +213,7 @@ endmodule
 
 module simTop (Empty);
   let h <- mkPipelinedAvalonMMHost;
-  let a <- mkPipelinedAvalonMMAgent;
+  let a <- mkPipelinedAvalonMem;
   (* fire_when_enabled, no_implicit_conditions *)
   rule debug;
     lvlprint (2, $format ("----------------------------------------"));

@@ -54,9 +54,29 @@ BSCFLAGS += -show-range-conflict
 
 TESTSDIR = tests
 
-all: simPipelinedAvalonMM_Host_Agent
+all: simPipelinedAvalonMM_Host_Agent simPipelinedAvalonMem simPipelinedAvalonMem_SubWord
 
 simPipelinedAvalonMM_Host_Agent: $(TESTSDIR)/PipelinedAvalonMM_Host_Agent.bsv
+	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR)
+	$(BSC) -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g simTop -u $<
+	$(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e simTop -o $(OUTPUTDIR)/$@
+	dot -Tsvg $(OUTPUTDIR)/$@-info/simTop_combined.dot > $(OUTPUTDIR)/$@-info/simTop_combined.svg
+	dot -Tsvg $(OUTPUTDIR)/$@-info/simTop_combined_full.dot > $(OUTPUTDIR)/$@-info/simTop_combined_full.svg
+	dot -Tsvg $(OUTPUTDIR)/$@-info/simTop_conflict.dot > $(OUTPUTDIR)/$@-info/simTop_conflict.svg
+	dot -Tsvg $(OUTPUTDIR)/$@-info/simTop_exec.dot > $(OUTPUTDIR)/$@-info/simTop_exec.svg
+	dot -Tsvg $(OUTPUTDIR)/$@-info/simTop_urgency.dot > $(OUTPUTDIR)/$@-info/simTop_urgency.svg
+
+simPipelinedAvalonMem: $(TESTSDIR)/PipelinedAvalonMem.bsv
+	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR)
+	$(BSC) -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g simTop -u $<
+	$(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e simTop -o $(OUTPUTDIR)/$@
+	dot -Tsvg $(OUTPUTDIR)/$@-info/simTop_combined.dot > $(OUTPUTDIR)/$@-info/simTop_combined.svg
+	dot -Tsvg $(OUTPUTDIR)/$@-info/simTop_combined_full.dot > $(OUTPUTDIR)/$@-info/simTop_combined_full.svg
+	dot -Tsvg $(OUTPUTDIR)/$@-info/simTop_conflict.dot > $(OUTPUTDIR)/$@-info/simTop_conflict.svg
+	dot -Tsvg $(OUTPUTDIR)/$@-info/simTop_exec.dot > $(OUTPUTDIR)/$@-info/simTop_exec.svg
+	dot -Tsvg $(OUTPUTDIR)/$@-info/simTop_urgency.dot > $(OUTPUTDIR)/$@-info/simTop_urgency.svg
+
+simPipelinedAvalonMem_SubWord: $(TESTSDIR)/PipelinedAvalonMem_SubWord.bsv
 	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR)
 	$(BSC) -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g simTop -u $<
 	$(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e simTop -o $(OUTPUTDIR)/$@
