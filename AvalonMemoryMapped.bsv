@@ -37,6 +37,12 @@ import Connectable :: *;
 
 import BlueBasics :: *;
 
+// info / debug prints
+Integer curLvl = 0;
+function Action lvlPrint (Integer tgtLvl, Fmt msg) = action
+  if (curLvl >= tgtLvl) $display ("<%0t> ", $time, msg);
+endaction;
+
 // Flit types and interfaces
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -548,6 +554,8 @@ module toPipelinedAvalonMMAgent #(
   /////////////////////////////////////
   (* fire_when_enabled, no_implicit_conditions *)
   rule accept_request (ff_req.notFull && (w_h2a.read || w_h2a.write));
+    lvlPrint (2, $format ( "%m.toPipelinedAvalonMMAgent.accept_request - "
+                         , "req: ", fshow (avalonMMHost2Agent2Req (w_h2a)) ));
     ff_req.enq (avalonMMHost2Agent2Req (w_h2a));
   endrule
 
@@ -555,6 +563,9 @@ module toPipelinedAvalonMMAgent #(
   //////////////////////////////////////
   (* fire_when_enabled, no_implicit_conditions *)
   rule forward_response (ff_rsp.notEmpty);
+    lvlPrint (2, $format ( "%m.toPipelinedAvalonMMAgent.forward_response - "
+                         , "ff_rsp.first: ", fshow (ff_rsp.first)
+                         , ", ff_req.notFull: ", fshow (ff_req.notFull) ));
     AvalonMMResponse #(t_data_w) rsp = ff_rsp.first;
     ff_rsp.deq;
     w_a2h <= AvalonMMAgent2Host {
